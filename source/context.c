@@ -16,8 +16,9 @@ debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                VkDebugUtilsMessageTypeFlagsEXT messageType,
                const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
                void* pUserData) {
-    if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT && messageType != VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT)
-        fprintf(stderr, "Validation: %s\n", pCallbackData->pMessage);
+    if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+        printf("Validation: %s\n", pCallbackData->pMessage);
+    flush;
     return VK_FALSE;
 }
 
@@ -78,16 +79,11 @@ static void V_FillDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT* d
 
 //- Physical Device Stuff 
 
-typedef struct V_QueueFamilyIndices {
-    u32_optional graphics_family;
-    u32_optional present_family;
-} V_QueueFamilyIndices;
-
-static b8 V_QueueFamilyIndicesValid(V_QueueFamilyIndices indices) {
+b8 V_QueueFamilyIndicesValid(V_QueueFamilyIndices indices) {
     return indices.graphics_family.valid && indices.present_family.valid;
 }
 
-static V_QueueFamilyIndices V_FindQueueFamilies(V_VulkanContext* context, VkPhysicalDevice device) {
+V_QueueFamilyIndices V_FindQueueFamilies(V_VulkanContext* context, VkPhysicalDevice device) {
     V_QueueFamilyIndices indices;
     
     u32 queue_family_count = 0;
@@ -124,7 +120,6 @@ static b8 V_DeviceExtensionsSupported(VkPhysicalDevice device, StringArray sa) {
                 found = true;
             }
         }
-        
         if (!found) {
             free(supported_extensions);
             return false;
@@ -149,7 +144,7 @@ static void V_FreeSwapchainDetails(V_SwapchainDetails details) {
 }
 
 static V_SwapchainDetails V_SwapchainSupportDetails(V_VulkanContext* context, VkPhysicalDevice device) {
-    V_SwapchainDetails details;
+    V_SwapchainDetails details = {0};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, context->surface, &details.capabilities);
     
     vkGetPhysicalDeviceSurfaceFormatsKHR(device, context->surface, &details.format_count, nullptr);
@@ -160,7 +155,7 @@ static V_SwapchainDetails V_SwapchainSupportDetails(V_VulkanContext* context, Vk
     
     vkGetPhysicalDeviceSurfacePresentModesKHR(device, context->surface, &details.present_mode_count, nullptr);
     if (details.present_mode_count) {
-        details.formats = calloc(details.present_mode_count, sizeof(VkPresentModeKHR));
+        details.present_modes = calloc(details.present_mode_count, sizeof(VkPresentModeKHR));
         vkGetPhysicalDeviceSurfacePresentModesKHR(device, context->surface, &details.present_mode_count, details.present_modes);
     }
     
@@ -242,7 +237,7 @@ static b8 V_CreateInstance(V_VulkanContext* context, b8 debug_mode) {
     app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     app_info.pEngineName = "VisualX";
     app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    app_info.engineVersion = VK_VERSION_1_3;
+    app_info.apiVersion = VK_VERSION_1_3;
     
     context->extensions = V_GetGLFWRequiredExtensions();
     if (debug_mode) {
@@ -335,7 +330,8 @@ static b8 V_CreateLogicalDevice(V_VulkanContext* context, b8 debug_mode) {
     device_create_info.pQueueCreateInfos = queue_create_infos.elems;
     device_create_info.queueCreateInfoCount = queue_create_infos.len;
     device_create_info.pEnabledFeatures = &physical_device_features;
-    device_create_info.enabledExtensionCount = 0;
+    device_create_info.enabledExtensionCount = required_device_extensions.len;
+    device_create_info.ppEnabledExtensionNames = required_device_extensions.elems;
     device_create_info.enabledLayerCount = 0;
     
     VkResult res = vkCreateDevice(context->physical_device, &device_create_info, nullptr, &context->device);
@@ -401,6 +397,28 @@ static b8 V_CreateSwapchain(W_Window* window, V_VulkanContext* context, b8 debug
     vkGetSwapchainImagesKHR(context->device, context->swapchain, &image_count, nullptr);
     context->swapchain_images = calloc(image_count, sizeof(VkImage));
     vkGetSwapchainImagesKHR(context->device, context->swapchain, &image_count, context->swapchain_images);
+    
+    context->swapchain_image_views = calloc(image_count, sizeof(VkImageView));
+    for (u32 i = 0; i < image_count; i++) {
+        VkImageViewCreateInfo image_view_create_info = {0};
+        image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        image_view_create_info.image = context->swapchain_images[i];
+        image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        image_view_create_info.format = surface_format.format;
+        image_view_create_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        image_view_create_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        image_view_create_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        image_view_create_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_view_create_info.subresourceRange.baseMipLevel = 0;
+        image_view_create_info.subresourceRange.levelCount = 1;
+        image_view_create_info.subresourceRange.baseArrayLayer = 0;
+        image_view_create_info.subresourceRange.layerCount = 1;
+        
+        res = vkCreateImageView(context->device, &image_view_create_info, nullptr, &context->swapchain_image_views[i]);
+        AssertFalse(res, "Swapchain vkCreateImageView[%d] Failed with code %d\n", i, res);
+    }
+    
     context->swapchain_image_count = image_count;
     
     context->swapchain_image_format = surface_format.format;
@@ -419,9 +437,12 @@ void Vulkan_Init(W_Window* window, V_VulkanContext* context, b8 debug_mode) {
 }
 
 void Vulkan_Free(V_VulkanContext* context, b8 debug_mode) {
+    for (u32 i = 0; i < context->swapchain_image_count; i++)
+        vkDestroyImageView(context->device, context->swapchain_image_views[i], nullptr);
     if (context->swapchain_images)
         free(context->swapchain_images);
     vkDestroySwapchainKHR(context->device, context->swapchain, nullptr);
+    
     vkDestroyDevice(context->device, nullptr);
     if (debug_mode)
         vkDestroyDebugUtilsMessengerEXT(context->instance, context->debug_messenger, nullptr);

@@ -41,7 +41,7 @@ typedef struct M_Scratch {
     u32 index;
 } M_Scratch;
 
-#define M_SCRATCH_SIZE Kilobytes(16)
+#define M_SCRATCH_SIZE Kilobytes(128)
 
 void M_ScratchInit(void); // Should be called at the start of your app
 void M_ScratchFree(void); // Should be called at the end of your app

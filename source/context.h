@@ -29,13 +29,26 @@ typedef struct V_VulkanContext {
     
     VkSurfaceKHR surface;
     VkSwapchainKHR swapchain;
+    VkImageView* swapchain_image_views;
     VkImage* swapchain_images;
     u32 swapchain_image_count;
+    
     VkFormat swapchain_image_format;
     VkExtent2D swapchain_extent;
 } V_VulkanContext;
 
+
 void Vulkan_Init(W_Window* window, V_VulkanContext* context, b8 debug_mode);
 void Vulkan_Free(V_VulkanContext* context, b8 debug_mode);
+
+
+typedef struct V_QueueFamilyIndices {
+    u32_optional graphics_family;
+    u32_optional present_family;
+} V_QueueFamilyIndices;
+
+b8 V_QueueFamilyIndicesValid(V_QueueFamilyIndices indices);
+V_QueueFamilyIndices V_FindQueueFamilies(V_VulkanContext* context, VkPhysicalDevice device);
+
 
 #endif //CONTEXT_H
